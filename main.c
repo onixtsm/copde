@@ -38,13 +38,15 @@ char *getMD5_file(FILE *item) {
   return filemd5;
 }
 
+#define INITIAL_SIZE 250
+
 void duplicate(char *path, FILE *sink) { fprintf(sink, "%s\n", path); }
 
 HashSet hashSetInit(void) {
   HashSet hash_set;
-  hash_set.hashes = malloc(sizeof(char) * MD5_LEN * 250);
+  hash_set.hashes = malloc(sizeof(char) * MD5_LEN * INITIAL_SIZE);
   hash_set.size = 0;
-  hash_set.cap = 4000;
+  hash_set.cap = INITIAL_SIZE;
   return hash_set;
 }
 
