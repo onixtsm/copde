@@ -2,7 +2,7 @@
 set -xe
 
 file=main
-libs="-lssl -lcrypto -O3"
+libs="-lssl -lcrypto -ggdb"
 
 gcc $file.c $libs -o copde
 
