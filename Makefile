@@ -1,5 +1,11 @@
 CFLAGS=-ggdb
 LDFLAGS=-lssl -lcrypto
+SOURCES=$(wildcard *.c)
 
-main: main.c
-	gcc -o $@ $< $(CFLAGS) $(LDFLAGS)
+copde: $(SOURCES)
+	gcc -o $@ $^ $(CFLAGS) $(LDFLAGS)
+
+run:
+	./copde
+
+.PHONY: run
