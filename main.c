@@ -1,10 +1,11 @@
-#include <assert.h>ma
+#include <assert.h>
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/limits.h>
 #include <openssl/md5.h>
 #include <pthread.h>
+#include <stdatomic.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
@@ -20,6 +21,9 @@ bool all_read = false;
 bool no_spinner = false;
 bool print_names = false;
 bool print_index = false;
+
+
+atomic_char dp[PATHS_MAX];
 
 typedef struct {
   Set *set;
@@ -39,9 +43,14 @@ bool is_dir(const char *path) {
 
 void add_file(Set *set, const char *path) {
   FILE *f = fopen(path, "rb");
+  if (f == NULL) {
+    fprintf(stderr, "[ERROR], Could not open file %s, because of %s\n", path, strerror(errno));
+    goto END;
+  }
   unsigned char *c = md5_get(f);
   set_add(set, c, path);
   free(c);
+END:
   fclose(f);
 }
 
@@ -53,14 +62,16 @@ void traverse_dir(Set *set, const char *path) {
     return;
   }
   while ((de = readdir(dir)) != NULL) {
-    if (de->d_type == DT_DIR && de->d_name[0] != '.') {
+    if (de->d_type == DT_DIR && strcmp(de->d_name, ".") != 0 && strcmp(de->d_name, "..") != 0) {
       char full_path[PATH_MAX] = {0};
       sprintf(full_path, "%s/%s", path, de->d_name);
       traverse_dir(set, full_path);
     } else if (de->d_type == DT_REG) {
       char full_path[PATH_MAX] = {0};
       sprintf(full_path, "%s/%s", path, de->d_name);
+      strcpy((char *)dp, full_path);
       add_file(set, full_path);
+      memset(dp, 0, strlen(full_path));
     }
   }
   closedir(dir);
@@ -83,9 +94,8 @@ void *main_loop(void *arg) {
   all_read = true;
   return NULL;
 }
-/*
 void *spinner(void *arg) {
-  struct Arg *a = (struct Arg *)arg;
+  Thread_args *a = (Thread_args *)arg;
   size_t counter = 0;
   char tdp[PATH_MAX];
   do {
@@ -97,7 +107,7 @@ void *spinner(void *arg) {
         fprintf(stderr, "%c ", SPIN[counter % SPIN_SIZE]);
       }
       if (print_index) {
-        fprintf(stderr, "%6zu ", counter);
+        fprintf(stderr, "%6zu ", counter/2); // Counter shows x2 values for some reason;
       }
       if (print_names) {
         fprintf(stderr, "%s", (char *)dp);
@@ -107,18 +117,16 @@ void *spinner(void *arg) {
   fprintf(stderr, "%s\n", MOVE_TO_BEGINING);
   return NULL;
 }
-*/
 
 void print_help(void) { assert(false && "Not implementded"); }
 
 char *parse_arguments(int argc, char **argv) {
   if (argc < 2) {
-    fprintf(stderr, "Usage copde [flags] <dir|file> [dir|file]\n");
+    fprintf(stderr, "Usage copde [flags] <dir|file> [dir|file] ...\n");
     return NULL;
   }
   char *path_collection =
       malloc(sizeof(*path_collection) * PATHS_MAX * PATH_MAX);  // Space fo 20 PATH_MAX, every path is 4096 bytes
-                                                                printf("%zu\n", sizeof(*path_collection) * PATHS_MAX * PATH_MAX);
 
   if (path_collection == NULL) {
     fprintf(stderr, "[ERROR] Buy more RAM!\n");
@@ -162,19 +170,22 @@ int main(int argc, char **argv) {
   arg.set = set;
   arg.paths_collection = path_collection;
 
-  // pthread_create(&main_tid, NULL, main_loop, &arg);
-  // pthread_create(&spinner_tid, NULL, spinner, &arg);
+  pthread_create(&main_tid, NULL, main_loop, &arg);
+  pthread_create(&spinner_tid, NULL, spinner, &arg);
 
-  // pthread_join(main_tid, NULL);
-  main_loop((void *)&arg);
-  // pthread_join(spinner_tid, NULL);
+  pthread_join(main_tid, NULL);
+  pthread_join(spinner_tid, NULL);
   free(path_collection);
 
-  fprintf(stderr, "[LOG] All files read\n");
+  fprintf(stderr, "[LOG] %zu files read\n", set->size);
   set_print(set);
   set_sort(set);
   fprintf(stderr, "===================================\n");
   set_print(set);
+  set_combine_items(set);
+
+  fprintf(stderr, "===================================\n");
+  set_print_duplicates(set);
   set_delete(set);
   return 0;
   /*

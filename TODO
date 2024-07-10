@@ -1,0 +1,7 @@
+Make help
+Multithread file reading:
+  Many Item sets
+  Sort them (https://www.geeksforgeeks.org/merge-sort-using-multi-threading/)
+  Unite them
+Pretty print
+No segfault on wrong path

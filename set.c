@@ -33,7 +33,7 @@ void set_combine_items(Set *set) {
   char tpath[PATH_MAX] = {0};
   Item *titem = set->items[0];
   for (size_t i = 1; i < set->size; ++i) {
-    if (strcmp((char *)titem->hash, (char *)set->items[i]->hash)) {
+    if (strcmp((char *)titem->hash, (char *)set->items[i]->hash) == 0) {
       item_add_path(titem, *set->items[i]->paths);
       // item_delete(set->items[i]);
     } else {
@@ -54,7 +54,14 @@ void set_delete(Set *set) {
   free(set);
 }
 int compar(const void *i1, const void *i2) {
-  return strcmp((const char *)(((Item *)i1)->hash), (const char *)(((Item *)i2)->hash));
+  Item *ti1 = (Item *) i1;
+  Item *ti2 = (Item *) i2;
+  for (size_t i = 0; i < MD5_DIGEST_LENGTH; ++i) {
+      if (ti2[i].hash - ti1[i].hash != 0) {
+        return ti2[i].hash - ti1[i].hash;
+      }
+  }
+  return 0;
 }
 
 void set_sort(Set *set) { qsort(set->items, set->size, sizeof(set->items), compar); }
@@ -66,5 +73,17 @@ void set_print(Set *set) {
       fprintf(stderr, " %s", set->items[i]->paths[j]);
     }
     putc('\n', stderr);
+  }
+}
+
+void set_print_duplicates(Set *set) {
+  for (size_t i = 0; i < set->size; ++i) {
+    if (set->items[i]->paths_count > 1) {
+      md5_print(set->items[i]->hash);
+      for (size_t j = 0; j < set->items[i]->paths_count; ++j) {
+        fprintf(stderr, " %s", set->items[i]->paths[j]);
+      }
+      putc('\n', stderr);
+    }
   }
 }

@@ -16,5 +16,7 @@ void set_add(Set *set, unsigned char *key, const char *path);
 void set_delete(Set *set);
 void set_sort(Set *set);
 void set_print(Set *set);
+void set_combine_items(Set *set);
+void set_print_duplicates(Set *set);
 
 #endif
