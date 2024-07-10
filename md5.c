@@ -29,4 +29,8 @@ void md5_print(MD5_HASH c) {
   fflush(stdout);
 }
 
-void md5_copy_hash(MD5_HASH dst, const MD5_HASH src) { strcpy((char *)dst, (const char *)src); }
+void md5_copy_hash(MD5_HASH dst, const MD5_HASH src) { 
+  for (size_t i = 0; i < MD5_DIGEST_LENGTH; ++i) {
+    dst[i] = src[i];
+  }
+}
