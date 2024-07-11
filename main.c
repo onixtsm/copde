@@ -16,19 +16,30 @@
 
 #define CHUNK_SIZE 1024
 #define PATHS_MAX 20
+#define THREAD_COUNT 4
 
 bool all_read = false;
 bool no_spinner = false;
 bool print_names = false;
 bool print_index = false;
 
+typedef struct {
+  bool free;
+  pthread_t tid;
+  size_t id;
+  Set *set;
+  bool was_used;
+} Thread;
 
-atomic_char dp[PATHS_MAX];
+atomic_char dp[PATH_MAX];
+atomic_size_t count = 0;
 
 typedef struct {
-  Set *set;
-  char *paths_collection;
+  char path[PATH_MAX];
+  Thread *thread;
 } Thread_args;
+
+pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 
 const char SPIN[] = "┤ ┘ ┴ └ ├ ┌ ┬ ┐";
 const size_t SPIN_SIZE = sizeof(SPIN) / sizeof(SPIN[0]);
@@ -41,20 +52,35 @@ bool is_dir(const char *path) {
   return S_ISDIR(s.st_mode);
 }
 
-void add_file(Set *set, const char *path) {
+void *add_file(void *a) {
+  Thread_args *arg = (Thread_args *)a;
+  char *path = arg->path;
+  Thread *thread = arg->thread;
+  thread->free = false;
+  thread->was_used = true;
+  Set *set = thread->set;
+  // printf("On thread %zu, file %s\n", thread->id, path);
+
   FILE *f = fopen(path, "rb");
   if (f == NULL) {
-    fprintf(stderr, "[ERROR], Could not open file %s, because of %s\n", path, strerror(errno));
+    fprintf(stderr, "[ERROR] Could not open file %s, because of %s\n", path, strerror(errno));
     goto END;
   }
   unsigned char *c = md5_get(f);
+  pthread_mutex_lock(&lock);
   set_add(set, c, path);
+  pthread_mutex_unlock(&lock);
   free(c);
-END:
   fclose(f);
+END:
+  free(a);
+  pthread_mutex_lock(&lock);
+  thread->free = true;
+  pthread_mutex_unlock(&lock);
+  return NULL;
 }
 
-void traverse_dir(Set *set, const char *path) {
+void traverse_dir(Thread *threads, const char *path) {
   struct dirent *de;
   DIR *dir = opendir(path);
   if (dir == NULL) {
@@ -62,37 +88,55 @@ void traverse_dir(Set *set, const char *path) {
     return;
   }
   while ((de = readdir(dir)) != NULL) {
+    char full_path[PATH_MAX] = {0};
+    sprintf(full_path, "%s/%s", path, de->d_name);
+    strcpy((char *)dp, full_path);
     if (de->d_type == DT_DIR && strcmp(de->d_name, ".") != 0 && strcmp(de->d_name, "..") != 0) {
-      char full_path[PATH_MAX] = {0};
-      sprintf(full_path, "%s/%s", path, de->d_name);
-      traverse_dir(set, full_path);
+      traverse_dir(threads, full_path);
     } else if (de->d_type == DT_REG) {
-      char full_path[PATH_MAX] = {0};
-      sprintf(full_path, "%s/%s", path, de->d_name);
-      strcpy((char *)dp, full_path);
-      add_file(set, full_path);
-      memset(dp, 0, strlen(full_path));
+      for (size_t i = 0; 1; ++i) {
+        pthread_mutex_lock(&lock);
+        i = i % THREAD_COUNT;
+        if (threads[i].free) {
+          Thread_args *a = malloc(sizeof(*a));
+          if (a == NULL) {
+            fprintf(stderr, "Buy more RAM\n");
+            break;
+          }
+          strcpy(a->path, full_path);
+          a->thread = &threads[i];
+
+          pthread_mutex_unlock(&lock);
+          // Thread_args a = {full_path, &threads[i]};
+          pthread_create(&threads[i].tid, NULL, add_file, a);
+          break;
+        }
+        pthread_mutex_unlock(&lock);
+      }
     }
   }
   closedir(dir);
 }
 
-void *main_loop(void *arg) {
-  Thread_args *a = (Thread_args *)arg;
-  Set *set = a->set;
-  char *path_collection = a->paths_collection;
+void main_loop(Thread *threads, char *path_collection) {
   char path[PATH_MAX] = {0};
   while (0 != *strcpy(path, path_collection)) {
     if (is_dir(path)) {
-      traverse_dir(set, path);
+      traverse_dir(threads, path);
     } else {
-      add_file(set, path);
+      Thread_args *a = malloc(sizeof(*a));
+      if (a == NULL) {
+        continue;
+      }
+      strcpy(a->path, path);
+      a->thread = &threads[0];
+      // Thread_args a = {path, &threads[0]};
+      add_file(a);
     }
     path_collection += strlen(path) + 1;
     memset(path, 0, PATH_MAX);
   }
   all_read = true;
-  return NULL;
 }
 void *spinner(void *arg) {
   Thread_args *a = (Thread_args *)arg;
@@ -107,7 +151,7 @@ void *spinner(void *arg) {
         fprintf(stderr, "%c ", SPIN[counter % SPIN_SIZE]);
       }
       if (print_index) {
-        fprintf(stderr, "%6zu ", counter/2); // Counter shows x2 values for some reason;
+        fprintf(stderr, "%6zu ", counter);  // Counter shows x2 values for some reason;
       }
       if (print_names) {
         fprintf(stderr, "%s", (char *)dp);
@@ -156,36 +200,59 @@ char *parse_arguments(int argc, char **argv) {
   return path_collection;
 }
 
+void *set_sort_wrapper(void *s) {
+  set_sort((Set *)s);
+  return NULL;
+}
+
+void sort_threaded_sets(Thread *threads) {
+  for (size_t i = 0; i < THREAD_COUNT; ++i) {
+    pthread_create(&threads[i].tid, NULL, set_sort_wrapper, threads->set);
+  }
+  for (size_t i = 0; i < THREAD_COUNT; ++i) {
+    pthread_join(threads[i].tid, NULL);
+  }
+}
+
 int main(int argc, char **argv) {
   char *path_collection = parse_arguments(argc, argv);
   if (path_collection == NULL) {
     return 1;
   }
-  Set *set = set_init();
 
   fprintf(stderr, "[LOG] Reading files\n");
 
   pthread_t main_tid, spinner_tid;
   Thread_args arg;
-  arg.set = set;
-  arg.paths_collection = path_collection;
-
-  pthread_create(&main_tid, NULL, main_loop, &arg);
+  Thread threads[THREAD_COUNT];
+  for (size_t i = 0; i < THREAD_COUNT; ++i) {
+    threads[i].free = true;
+    threads[i].id = i;
+    threads[i].set = set_init();
+  }
+  strcpy(arg.path, path_collection);  // POSSIBLE OUT OF MEMORY
+  // arg.path = path_collection;
+  arg.thread = threads;
   pthread_create(&spinner_tid, NULL, spinner, &arg);
+  main_loop(threads, path_collection);
 
-  pthread_join(main_tid, NULL);
+  for (size_t i = 0; i < THREAD_COUNT; ++i) {
+    if (threads[i].was_used) {
+      pthread_join(threads[i].tid, NULL);
+    }
+  }
   pthread_join(spinner_tid, NULL);
   free(path_collection);
-
+  sort_threaded_sets(threads);
+  Set *set = threads[0].set;
+  for (size_t i = 1; i < THREAD_COUNT; ++i) {
+    set_cat(set, threads[i].set);
+  }
   fprintf(stderr, "[LOG] %zu files read\n", set->size);
-  set_print(set);
-  set_sort(set);
+  // set_sort(set);
   fprintf(stderr, "===================================\n");
-  set_print(set);
-  set_combine_items(set);
-
+  // set_combine_items(set);
   fprintf(stderr, "===================================\n");
-  set_print_duplicates(set);
   set_delete(set);
   return 0;
   /*

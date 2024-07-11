@@ -4,4 +4,3 @@ Multithread file reading:
   Sort them (https://www.geeksforgeeks.org/merge-sort-using-multi-threading/)
   Unite them
 Pretty print
-No segfault on wrong path

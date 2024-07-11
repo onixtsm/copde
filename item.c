@@ -19,12 +19,16 @@ Item *item_new(MD5_HASH hash) {
 }
 
 void item_delete(Item *item) {
+  if (item == NULL) {
+    return;
+  }
   if (item->paths != NULL) {
     for (size_t i = 0; i < item->paths_count; ++i) {
       free(item->paths[i]);
     }
   }
   free(item->paths);
+  item->paths = NULL;
   free(item);
 }
 

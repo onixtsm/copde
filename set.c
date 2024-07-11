@@ -13,6 +13,10 @@
 
 Set *set_init(void) {
   Set *set = malloc(sizeof(*set) * CHUNK_SIZE);
+  if (set == NULL) {
+    fprintf(stderr, "[ERROR] Buy more RAM\n");
+    return NULL;
+  }
   set->capacity = CHUNK_SIZE;
   set->items = malloc(sizeof(set->items) * CHUNK_SIZE);
   set->size = 0;
@@ -35,7 +39,6 @@ void set_combine_items(Set *set) {
   for (size_t i = 1; i < set->size; ++i) {
     if (strcmp((char *)titem->hash, (char *)set->items[i]->hash) == 0) {
       item_add_path(titem, *set->items[i]->paths);
-      // item_delete(set->items[i]);
     } else {
       titem = set->items[i];
     }
@@ -44,27 +47,46 @@ void set_combine_items(Set *set) {
 
 void set_delete(Set *set) {
   for (size_t i = 0; i < set->capacity; ++i) {
+    fprintf(stderr, "\r%zu of %zu", i, set->capacity);
     if (i < set->size) {
       item_delete(set->items[i]);
     }
-    // if (set->capacity % i == CHUNK_SIZE) {
-    //   free(set->items[i]);
-    // }
   }
+  free(set->items);
+  set->items = NULL;
   free(set);
 }
 int compar(const void *i1, const void *i2) {
-  Item *ti1 = (Item *) i1;
-  Item *ti2 = (Item *) i2;
+  Item *ti1 = (Item *)i1;
+  Item *ti2 = (Item *)i2;
   for (size_t i = 0; i < MD5_DIGEST_LENGTH; ++i) {
-      if (ti2[i].hash - ti1[i].hash != 0) {
-        return ti2[i].hash - ti1[i].hash;
-      }
+    if (ti2[i].hash - ti1[i].hash != 0) {
+      return ti2[i].hash - ti1[i].hash;
+    }
   }
   return 0;
 }
 
 void set_sort(Set *set) { qsort(set->items, set->size, sizeof(set->items), compar); }
+
+void set_cat(Set *set1, Set *set2) {
+  if (set1 == NULL || set2 == NULL) {
+    return;
+  }
+  int needed_size = set1->size + set2->size - set1->capacity;
+  if (needed_size > 0) {
+    set1->items = reallocarray(set1->items, set1->capacity + needed_size, sizeof(set1->items));
+    set1->capacity = set1->capacity + needed_size;
+  }
+  for (size_t i = 0; i < set2->size; ++i) {
+    set1->items[i + set1->size] = set2->items[i];
+  }
+  set1->size += set2->size;
+  set2->size = 0;
+  free(set2->items);
+  set2->items = NULL;
+  free(set2);
+}
 
 void set_print(Set *set) {
   for (size_t i = 0; i < set->size; ++i) {

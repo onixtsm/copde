@@ -18,5 +18,6 @@ void set_sort(Set *set);
 void set_print(Set *set);
 void set_combine_items(Set *set);
 void set_print_duplicates(Set *set);
+void set_cat(Set *set1, Set *set2);
 
 #endif
